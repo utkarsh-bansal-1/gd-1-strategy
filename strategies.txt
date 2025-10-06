@@ -1,0 +1,434 @@
+Note : for strategy 2 there can be different results since we changed the values later and tried some variations 
+
+----------------------------------------------------------------------------------------------------------strategy 1 .
+
+//@version=5
+strategy("EMA Slope Pullback - Responsive (Basic Einstein Mode)",
+  overlay=true,
+  initial_capital=1000,
+  default_qty_type=strategy.percent_of_equity,
+  default_qty_value=100,
+  calc_on_every_tick=false,
+  pyramiding=1)
+
+// === INPUTS ===
+fastLen = input.int(10, "Fast EMA (10)")
+slowLen = input.int(20, "Slow EMA (20)")
+slopeSmooth = input.int(2, "Slope smoothing (small)", minval=1)
+
+minSlopeDiffPct = input.float(0.0005, "Min slopeDiff (%)", step=0.0001,
+  tooltip="Minimum percent slope difference (fastSlope% - slowSlope%). Example 0.0005 = 0.05%")
+
+touchLookback = input.int(3, "EMA touch lookback bars", minval=1,
+  tooltip="Allow entry if price touched the fast EMA within last N bars")
+
+minHoldBars = input.int(6, "Min bars to hold", minval=1)
+atrLen = input.int(14, "ATR length")
+stopAtrMult = input.float(2.5, "Stop loss (ATR x)")
+tpAtrMult = input.float(4.0, "Take profit (ATR x)")
+
+// === INDICATORS / SLOPES ===
+emaFast = ta.ema(close, fastLen)
+emaSlow = ta.ema(close, slowLen)
+
+fastPct = (emaFast - emaFast[1]) / emaFast[1]      // immediate percent slope of fast EMA
+slowPct = (emaSlow - emaSlow[1]) / emaSlow[1]      // immediate percent slope of slow EMA
+
+slopeDiffPctRaw = fastPct - slowPct
+slopeDiffPct = ta.ema(slopeDiffPctRaw, slopeSmooth)  // small smoothing
+
+atr = ta.atr(atrLen)
+
+// === PRICE TOUCH / PULLBACK ===
+priceTouchRecent = ta.lowest(low, touchLookback) <= emaFast   // touched fast EMA within last N bars
+priceAtOrBelowEMA = close <= emaFast                          // current bar close at/below fast EMA
+enterPullbackCond = priceAtOrBelowEMA or priceTouchRecent
+
+// === TREND CONDITIONS ===
+longTrendCond  = emaFast > emaSlow and slopeDiffPct > minSlopeDiffPct
+
+inLong  = strategy.position_size > 0
+
+// === ENTRY SIGNALS ===
+longEntrySignal  = longTrendCond and enterPullbackCond and not inLong
+
+// === EXECUTION & EXITS ===
+var int entryBar = na
+var float long_stop = na
+var float long_tp   = na
+
+if (longEntrySignal)
+    strategy.entry("Long", strategy.long)
+    entryBar := bar_index
+    long_stop := close - stopAtrMult * atr
+    long_tp   := close + tpAtrMult * atr
+    strategy.exit("Exit Long (ATR)", from_entry="Long", stop=long_stop, limit=long_tp)
+
+// exit on trend-fail but only after minimum hold
+longTrendFail = not longTrendCond
+
+if (inLong and longTrendFail and (bar_index - entryBar) >= minHoldBars)
+    strategy.close("Long", comment="TrendFail_Long")
+
+// === PLOTS ===
+plot(emaFast, title="EMA Fast", linewidth=2, color=color.yellow)
+plot(emaSlow, title="EMA Slow", linewidth=2, color=color.blue)
+plotshape(longEntrySignal, title="LongEntry", style=shape.triangleup, location=location.belowbar, color=color.green, size=size.small)
+
+// slopeDiff display (scaled percent = pct * 10000 for readability)
+plot(slopeDiffPct * 10000, title="slopeDiff (scaled x10000)", style=plot.style_columns, transp=70)
+
+
+
+
+------------------------------------------------------------------------------------------------strategy 2
+
+
+
+//@version=5
+strategy("EMA Slope Pullback - Responsive (Basic Einstein Mode)",
+  overlay=true,
+  initial_capital=1000,
+  default_qty_type=strategy.percent_of_equity,
+  default_qty_value=100,
+  calc_on_every_tick=false,
+  pyramiding=1)
+
+// === INPUTS ===
+fastLen = input.int(10, "Fast EMA (10)")
+slowLen = input.int(21, "Slow EMA (20)")
+slopeSmooth = input.int(12, "Slope smoothing (small)", minval=1)
+
+minSlopeDiffPct = input.float(0.0001, "Min slopeDiff (%)", step=0.0001,
+  tooltip="Minimum percent slope difference (fastSlope% - slowSlope%). Example 0.0005 = 0.05%")
+
+touchLookback = input.int(3, "EMA touch lookback bars", minval=1,
+  tooltip="Allow entry if price touched the fast EMA within last N bars")
+
+minHoldBars = input.int(6, "Min bars to hold", minval=1)
+atrLen = input.int(14, "ATR length")
+stopAtrMult = input.float(2.5, "Stop loss (ATR x)")
+tpAtrMult = input.float(4, "Take profit (ATR x)")
+
+// === INDICATORS / SLOPES ===
+emaFast = ta.ema(close, fastLen)
+emaSlow = ta.ema(close, slowLen)
+
+fastPct = (emaFast - emaFast[1]) / emaFast[1]      // immediate percent slope of fast EMA
+slowPct = (emaSlow - emaSlow[1]) / emaSlow[1]      // immediate percent slope of slow EMA
+
+slopeDiffPctRaw = fastPct - slowPct
+slopeDiffPct = ta.ema(slopeDiffPctRaw, slopeSmooth)  // small smoothing
+
+atr = ta.atr(atrLen)
+
+// === PRICE TOUCH / PULLBACK ===
+priceTouchRecent = ta.lowest(low, touchLookback) <= emaFast   // touched fast EMA within last N bars
+priceAtOrBelowEMA = close <= emaFast                          // current bar close at/below fast EMA
+enterPullbackCond = priceAtOrBelowEMA or priceTouchRecent
+
+// === TREND CONDITIONS ===
+longTrendCond  = emaFast > emaSlow and  slopeDiffPct > minSlopeDiffPct
+shortTrendCond = emaFast < emaSlow and slopeDiffPct < -minSlopeDiffPct
+
+inLong  = strategy.position_size > 0
+inShort = strategy.position_size < 0
+
+// === ENTRY SIGNALS ===
+longEntrySignal  = longTrendCond and enterPullbackCond and not inLong
+shortEntrySignal = shortTrendCond and enterPullbackCond and not inShort
+
+// === EXECUTION & EXITS ===
+var int entryBar = na
+var float long_stop = na
+var float long_tp   = na
+var float short_stop = na
+var float short_tp   = na
+
+if (longEntrySignal)
+    strategy.entry("Long", strategy.long)
+    entryBar := bar_index
+    long_stop := close - stopAtrMult * atr
+    long_tp   := close + tpAtrMult * atr
+    strategy.exit("Exit Long (ATR)", from_entry="Long", stop=long_stop, limit=long_tp)
+
+if (shortEntrySignal)
+    strategy.entry("Short", strategy.short)
+    entryBar := bar_index
+    short_stop := close + stopAtrMult * atr
+    short_tp   := close - tpAtrMult * atr
+    strategy.exit("Exit Short (ATR)", from_entry="Short", stop=short_stop, limit=short_tp)
+
+// exit on trend-fail but only after minimum hold
+longTrendFail = not longTrendCond
+shortTrendFail = not shortTrendCond
+
+if (inLong and longTrendFail and (bar_index - entryBar) >= minHoldBars)
+    strategy.close("Long", comment="TrendFail_Long")
+
+if (inShort and shortTrendFail and (bar_index - entryBar) >= minHoldBars)
+    strategy.close("Short", comment="TrendFail_Short")
+
+// === PLOTS ===
+plot(emaFast, title="EMA Fast", linewidth=2, color=color.yellow)
+plot(emaSlow, title="EMA Slow", linewidth=2, color=color.blue)
+plotshape(longEntrySignal, title="LongEntry", style=shape.triangleup, location=location.belowbar, color=color.green, size=size.small)
+plotshape(shortEntrySignal, title="ShortEntry", style=shape.triangledown, location=location.abovebar, color=color.red, size=size.small)
+
+// slopeDiff display (scaled percent = pct * 10000 for readability)
+plot(slopeDiffPct * 10000, title="slopeDiff (scaled x10000)", style=plot.style_columns, color=color.new(color.orange, 80))
+
+// === Drawdown-only helper (top-level; no local-scope plot calls) ===
+// user controls for clutter
+showAbove = input.float(1.0, "Plot drawdowns >= (%)", step=0.1)  // increase to 5 or 10 to reduce clutter
+plotMaxDDLine = input.bool(true, "Show Max Drawdown line")
+
+// running equity peak and drawdown (percent)
+var float eqPeak = strategy.equity           // initialize once
+eqPeak := math.max(eqPeak, strategy.equity) // update peak each bar
+
+drawdownAbs = eqPeak - strategy.equity
+drawdownPct = eqPeak != 0.0 ? (drawdownAbs / eqPeak) * 100.0 : 0.0
+
+// running maximum drawdown observed
+var float maxDD = 0.0
+maxDD := math.max(maxDD, drawdownPct)
+
+// top-level plots only (use ternary to conditionally show)
+plotDD = drawdownPct >= showAbove ? drawdownPct : na
+plot(plotDD, title="Drawdown %", style=plot.style_area, linewidth=1, color=color.new(color.red, 85))
+hline(0, "Zero", color=color.new(color.gray, 85))
+plot(plotMaxDDLine ? maxDD : na, title="Max Drawdown %", style=plot.style_line, linewidth=1, color=color.new(color.maroon, 0))
+
+// small info table (top-right), use manual rounding to 2 decimals
+curDDrounded = math.round(drawdownPct * 100) / 100.0
+maxDDrounded = math.round(maxDD * 100) / 100.0
+
+var table info = table.new(position.top_right, 1, 2)
+if barstate.islast
+    table.cell(info, 0, 0, "Cur DD: " + str.tostring(curDDrounded) + "%")
+    table.cell(info, 0, 1, "Max DD: " + str.tostring(maxDDrounded) + "%")
+// ake . this might get copied. sadly . i am original
+
+
+
+------------------------------------------------------------------------------------------------strategy 3
+
+
+
+//@version=5
+strategy("EMA Slope Pullback with Asymmetric Trailing SL",overlay=true,initial_capital=1000,default_qty_type=strategy.percent_of_equity,default_qty_value=100,calc_on_every_tick=false,pyramiding=1)
+// 
+// === INPUTS ===
+fastLen = input.int(10, "Fast EMA (10)")
+slowLen = input.int(21, "Slow EMA (20)")
+slopeSmooth = input.int(12, "Slope smoothing (small)", minval=1)
+
+minSlopeDiffPct = input.float(0.0001, "Min slopeDiff (%)", step=0.0001,
+  tooltip="Minimum percent slope difference (fastSlope% - slowSlope%). Example 0.0005 = 0.05%")
+// 
+touchLookback = input.int(3, "EMA touch lookback bars", minval=1,
+  tooltip="Allow entry if price touched the fast EMA within last N bars")
+
+// --- Asymmetric Trailing Stop Inputs ---
+longAtrLen = input.int(17, "Long ATR Length", group="Long Trailing Stop")
+longStopAtrMult = input.float(4.625, "Long Stop (ATR x)", group="Long Trailing Stop")
+
+shortAtrLen = input.int(10, "Short ATR Length", group="Short Trailing Stop")
+shortStopAtrMult = input.float(2.75, "Short Stop (ATR x)", group="Short Trailing Stop") // Start with a tighter value for shorts
+// 
+// === INDICATORS / SLOPES ===
+emaFast = ta.ema(close, fastLen)
+emaSlow = ta.ema(close, slowLen)
+
+fastPct = (emaFast - emaFast[1]) / emaFast[1]      
+slowPct = (emaSlow - emaSlow[1]) / emaSlow[1]      
+
+slopeDiffPctRaw = fastPct - slowPct
+slopeDiffPct = ta.ema(slopeDiffPctRaw, slopeSmooth)
+
+// Create two separate ATR indicators
+atrLong = ta.atr(longAtrLen)
+atrShort = ta.atr(shortAtrLen)
+
+// === PRICE TOUCH / PULLBACK ===
+priceTouchRecent = ta.lowest(low, touchLookback) <= emaFast
+priceAtOrBelowEMA = close <= emaFast
+enterPullbackCond = priceAtOrBelowEMA or priceTouchRecent
+
+// === TREND CONDITIONS ===
+longTrendCond  = emaFast > emaSlow and  slopeDiffPct > minSlopeDiffPct
+shortTrendCond = emaFast < emaSlow and slopeDiffPct < -minSlopeDiffPct
+
+inLong  = strategy.position_size > 0
+inShort = strategy.position_size < 0
+
+// === ENTRY SIGNALS ===
+longEntrySignal  = longTrendCond and enterPullbackCond and not inLong
+shortEntrySignal = shortTrendCond and enterPullbackCond and not inShort
+
+// === TRAILING STOP LOSS EXECUTION & MANAGEMENT ===
+var float long_trailing_stop = na
+var float short_trailing_stop = na
+
+if strategy.position_size == 0
+    long_trailing_stop := na
+    short_trailing_stop := na
+
+// --- Entry and Initial Stop Placement ---
+if (longEntrySignal)
+    strategy.entry("Long", strategy.long)
+    long_trailing_stop := close - longStopAtrMult * atrLong
+
+if (shortEntrySignal)
+    strategy.entry("Short", strategy.short)
+    short_trailing_stop := close + shortStopAtrMult * atrShort
+
+// --- Trailing Logic for Active Trades ---
+if (inLong)
+    potential_long_stop = close - longStopAtrMult * atrLong
+    long_trailing_stop := math.max(long_trailing_stop, potential_long_stop)
+    strategy.exit("Exit Long TSL", from_entry="Long", stop=long_trailing_stop)
+
+if (inShort)
+    potential_short_stop = close + shortStopAtrMult * atrShort
+    short_trailing_stop := math.min(short_trailing_stop, potential_short_stop)
+    strategy.exit("Exit Short TSL", from_entry="Short", stop=short_trailing_stop)
+
+// === PLOTS & UI ===
+plot(emaFast, title="EMA Fast", linewidth=2, color=color.yellow)
+plot(emaSlow, title="EMA Slow", linewidth=2, color=color.blue)
+plotshape(longEntrySignal, title="LongEntry", style=shape.triangleup, location=location.belowbar, color=color.green, size=size.small)
+plotshape(shortEntrySignal, title="ShortEntry", style=shape.triangledown, location=location.abovebar, color=color.red, size=size.small)
+plot(inLong ? long_trailing_stop : na, title="Long Trailing Stop", color=color.new(color.green, 0), style=plot.style_linebr)
+plot(inShort ? short_trailing_stop : na, title="Short Trailing Stop", color=color.new(color.red, 0), style=plot.style_linebr)
+// (The rest of the drawdown plotting code remains the same)
+// ...
+
+
+
+--------------------------------------------------------------------------------------------------------final strategy
+
+//@version=5
+strategy("EMA Slope Pullback - Long Only and trailing sl with conditions",
+  overlay=true,
+  initial_capital=1000,
+  default_qty_type=strategy.percent_of_equity,
+  default_qty_value=100,
+  calc_on_every_tick=false,
+  pyramiding=1,
+  commission_type=strategy.commission.percent,
+  commission_value=0.05,
+  slippage=2)
+
+// === INPUTS ===
+fastLen = input.int(10, "Fast EMA (10)")
+slowLen = input.int(21, "Slow EMA (20)")
+slopeSmooth = input.int(12, "Slope smoothing (small)", minval=1)
+
+minSlopeDiffPct = input.float(0.0001, "Min slopeDiff (%)", step=0.0001,
+  tooltip="Minimum percent slope difference (fastSlope% - slowSlope%). Example 0.0005 = 0.05%")
+
+touchLookback = input.int(3, "EMA touch lookback bars", minval=1,
+  tooltip="Allow entry if price touched the fast EMA within last N bars")
+
+// --- Trailing Stop Inputs ---
+atrLen = input.int(17, "ATR length")
+stopAtrMult = input.float(4.625, "Trailing Stop (ATR x)")
+
+// --- Exit Option ---
+useShortSignalExit = input.bool(true, "Exit Long on Short Signal", 
+  tooltip="Close long positions when short conditions are met")
+
+// --- Min Bars Per Trade Filter ---
+minBarsPerTrade = input.int(5, "Min Bars Per Trade", minval=1,
+  tooltip="Minimum bars to hold position before allowing exit")
+
+// === INDICATORS / SLOPES ===
+emaFast = ta.ema(close, fastLen)
+emaSlow = ta.ema(close, slowLen)
+
+fastPct = (emaFast - emaFast[1]) / emaFast[1]
+slowPct = (emaSlow - emaSlow[1]) / emaSlow[1]
+
+slopeDiffPctRaw = fastPct - slowPct
+slopeDiffPct = ta.ema(slopeDiffPctRaw, slopeSmooth)
+
+atr = ta.atr(atrLen)
+
+// === PRICE TOUCH / PULLBACK ===
+priceTouchRecent = ta.lowest(low, touchLookback) <= emaFast
+priceAtOrBelowEMA = close <= emaFast
+enterPullbackCond = priceAtOrBelowEMA or priceTouchRecent
+
+// === TREND CONDITIONS ===
+longTrendCond  = emaFast > emaSlow and slopeDiffPct > minSlopeDiffPct
+shortTrendCond = emaFast < emaSlow and slopeDiffPct < -minSlopeDiffPct
+
+inLong  = strategy.position_size > 0
+
+// === TRACK BARS IN TRADE ===
+var int barsInTrade = 0
+if inLong
+    barsInTrade += 1
+else
+    barsInTrade := 0
+
+// === ENTRY & EXIT SIGNALS ===
+longEntrySignal  = longTrendCond and enterPullbackCond and not inLong
+shortExitSignal = shortTrendCond and enterPullbackCond and barsInTrade >= minBarsPerTrade
+
+// === TRAILING STOP LOSS EXECUTION & MANAGEMENT ===
+var float long_trailing_stop = na
+
+if strategy.position_size == 0
+    long_trailing_stop := na
+
+if (longEntrySignal)
+    strategy.entry("Long", strategy.long)
+    long_trailing_stop := close - stopAtrMult * atr
+
+if (inLong and useShortSignalExit and shortExitSignal)
+    strategy.close("Long", comment="Short Signal Exit")
+    long_trailing_stop := na
+
+if (inLong)
+    potential_long_stop = close - stopAtrMult * atr
+    long_trailing_stop := math.max(long_trailing_stop, potential_long_stop)
+    strategy.exit("Exit Long TSL", from_entry="Long", stop=long_trailing_stop)
+
+// === PLOTS ===
+plot(emaFast, title="EMA Fast", linewidth=2, color=color.yellow)
+plot(emaSlow, title="EMA Slow", linewidth=2, color=color.blue)
+plotshape(longEntrySignal, title="LongEntry", style=shape.triangleup, location=location.belowbar, color=color.green, size=size.small)
+plotshape(shortExitSignal and inLong, title="ShortExitSignal", style=shape.xcross, location=location.abovebar, color=color.orange, size=size.small)
+
+plot(inLong ? long_trailing_stop : na, title="Long Trailing Stop", color=color.new(color.green, 0), style=plot.style_linebr)
+
+plot(slopeDiffPct * 10000, title="slopeDiff (scaled x10000)", style=plot.style_columns, color=color.new(color.orange, 80))
+
+// === Drawdown Display ===
+showAbove = input.float(1.0, "Plot drawdowns >= (%)", step=0.1)
+plotMaxDDLine = input.bool(true, "Show Max Drawdown line")
+
+var float eqPeak = strategy.equity
+eqPeak := math.max(eqPeak, strategy.equity)
+
+drawdownAbs = eqPeak - strategy.equity
+drawdownPct = eqPeak != 0.0 ? (drawdownAbs / eqPeak) * 100.0 : 0.0
+
+var float maxDD = 0.0
+maxDD := math.max(maxDD, drawdownPct)
+
+plotDD = drawdownPct >= showAbove ? drawdownPct : na
+plot(plotDD, title="Drawdown %", style=plot.style_area, linewidth=1, color=color.new(color.red, 85))
+hline(0, "Zero", color=color.new(color.gray, 85))
+plot(plotMaxDDLine ? maxDD : na, title="Max Drawdown %", style=plot.style_line, linewidth=1, color=color.new(color.maroon, 0))
+
+curDDrounded = math.round(drawdownPct * 100) / 100.0
+maxDDrounded = math.round(maxDD * 100) / 100.0
+
+var table info = table.new(position.top_right, 1, 2)
+if barstate.islast
+    table.cell(info, 0, 0, "Cur DD: " + str.tostring(curDDrounded) + "%")
+    table.cell(info, 0, 1, "Max DD: " + str.tostring(maxDDrounded) + "%")
